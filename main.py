@@ -1,5 +1,7 @@
 import inquirer
 
+from utils import search
+
 questions = [
     inquirer.List(
         'type',
@@ -14,3 +16,9 @@ questions = [
 ]
 
 answer = inquirer.prompt(questions)
+
+movie = answer['type'] == 'Movies'
+
+result = search(answer['query'], movie)
+
+print(result)
