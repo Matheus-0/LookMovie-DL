@@ -1,76 +1,92 @@
+import concurrent.futures
+import os
+import shutil
+
 import inquirer
+from tqdm import tqdm
 
-from utils import access, load, master, search
+from utils import *
 
-questions = [
-    inquirer.List(
-        'type',
-        'Do you want to look for movies or TV shows?',
-        ['Movies', 'TV shows'],
-        carousel=True
-    ),
-    inquirer.Text(
-        'query',
-        'Search'
-    )
-]
+MAX_WORKERS = 15  # Maximum number of workers for thread pool executor
 
-answer = inquirer.prompt(questions)
+answers = inquirer.prompt([
+    inquirer.List('type', 'Look for movies or TV shows?', ['Movies', 'TV shows'], carousel=True),
+    inquirer.Text('query', 'Search')
+])
 
-movie = answer['type'] == 'Movies'
+movie = answers['type'] == 'Movies'
 
-result = search(answer['query'], movie)
+results = search(answers['query'], movie)  # Search and get results
 
-if result:
-    titles = [
-        inquirer.List(
-            'title',
-            'Which movie or TV show do you want to download?',
-            result.keys(),
-            carousel=True
-        )
-    ]
-
-    title = inquirer.prompt(titles)
+if results:
+    title = inquirer.prompt([
+        inquirer.List('title', 'Select movie or TV show', results.keys(), carousel=True)
+    ])['title']
 
     if movie:
         print('To-do.')
     else:
-        data = load(result[title['title']])
-        auth = access(data['ID'], False)
+        data = load(results[title])  # Get TV show data
+        acc = access(data['ID'], False)  # Get access data
 
-        expiration, token = auth['data']['expires'], auth['data']['accessToken']
+        expiration, token = acc['data']['expires'], acc['data']['accessToken']
 
-        seasons = [
-            inquirer.List(
-                'season',
-                'Which season do you want?',
-                [x for x in data.keys() if x != 'ID'],
-                carousel=True
-            )
-        ]
+        season = inquirer.prompt([
+            inquirer.List('season', 'Select season', [s for s in data.keys() if s != 'ID'], carousel=True)
+        ])['season']
 
-        season = inquirer.prompt(seasons)
+        episodes = inquirer.prompt([
+            inquirer.Checkbox('episodes', 'Select episodes', data[season].keys())
+        ])['episodes']
 
-        episodes = [
-            inquirer.Checkbox(
-                'episodes',
-                'Which episodes do you want to download?',
-                data[season['season']].keys(),
-            )
-        ]
+        if episodes:
+            masters = {e: master(data[season][e], expiration, token, False) for e in episodes}  # Get master links
+            links = {e: qualities(link) for e, link in masters.items()}  # Get index links for each quality
 
-        answers = inquirer.prompt(episodes)
+            directory = os.path.join(os.getcwd(), title, f"Season {season}")
+            temporary = os.path.join(os.getcwd(), 'temp')
 
-        if answers:
-            masters = dict()
+            os.makedirs(directory, exist_ok=True)
 
-            for episode in answers['episodes']:
-                ID = data[season['season']][episode]
+            quality = inquirer.prompt([
+                inquirer.List('quality', 'Select quality', ['360p', '480p', '720p', '1080p'], carousel=True)
+            ])['quality']
 
-                masters[episode] = master(ID, expiration, token, False)
+            for episode, values in links.items():
+                # Paths for MP4 and TS videos
+                MP4 = os.path.join(directory, f'Episode {episode}.mp4')
+                TS = os.path.join(directory, f"Episode {episode}.ts")
 
-            print(masters)
+                try:
+                    link = values[quality[:-1]]  # Try to access quality
+                except KeyError:
+                    link = values[str(max([int(i) for i in values.keys()]))]  # Choose best quality if not available
+
+                segments = extract(link)  # Get all links for each segment
+
+                os.makedirs(temporary, exist_ok=True)
+
+                progress = tqdm(total=len(segments))  # Progress bar
+
+                with concurrent.futures.ThreadPoolExecutor(MAX_WORKERS) as executor:
+                    with open('segments.txt', 'w') as file:
+                        for segment in segments:
+                            path = os.path.join(temporary, segment.split('/')[-1])
+
+                            executor.submit(download, segment, path).add_done_callback(lambda _: progress.update())
+
+                            file.write(f"file '{path}'\n")  # Write file paths on text file for later use
+
+                progress.close()
+
+                concat('segments.txt', TS)  # Join all segments
+
+                convert(TS, MP4)  # Convert from TS to MP4
+
+                os.unlink('segments.txt')  # Remove text file
+                os.unlink(TS)  # Remove TS video
+
+                shutil.rmtree(temporary)  # Remove temporary folder and all its files
         else:
             print('No episodes selected.')
 else:
