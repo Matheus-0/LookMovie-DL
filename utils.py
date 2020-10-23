@@ -18,6 +18,7 @@ MOVIES_BASE = 'https://lookmovie.ag/movies/search/?q='
 MASTER_MOVIES_BASE = 'https://lookmovie.ag/manifests/movies/json/'
 MASTER_SHOWS_BASE = 'https://lookmovie.ag/manifests/shows/json/'
 SHOWS_BASE = 'https://lookmovie.ag/shows/search/?q='
+SUBTITLES_SHOWS_BASE = 'https://lookmovie.ag/api/v1/shows/episode-subtitles/?id_episode='
 
 
 # Returns JSON with expiration and access token
@@ -31,18 +32,18 @@ def access(text, movie=True):
 def convert(filename, output):
     print('Converting to MP4...')
 
-    subprocess.Popen(
-        ['ffmpeg', '-loglevel', 'quiet', '-stats', '-i', filename, '-c:a', 'copy', '-c:v', 'copy', output]
-    ).wait()
+    subprocess.call(
+        f'ffmpeg -i "{filename}" -c:a copy -c:v copy "{output}" -loglevel quiet',
+        stdout=subprocess.DEVNULL,
+        shell=True
+    )
 
 
 # Concatenates all TS segments
-def concat(txt, output):
+def concat(output):
     print('Joining segments...')
 
-    subprocess.Popen(
-        ['ffmpeg', '-loglevel', 'quiet', '-stats', '-f', 'concat', '-safe', '0', '-i', txt, '-c', 'copy', output]
-    ).wait()
+    subprocess.call(f'copy /b .\\temp\\*.ts "{output}"', stdout=subprocess.DEVNULL, shell=True)
 
 
 # Downloads a segment
@@ -64,23 +65,21 @@ def download(segments, directory, description, workers):
     )  # Progress bar
 
     with concurrent.futures.ThreadPoolExecutor(workers) as executor:
-        with open('segments.txt', 'w') as file:
-            for segment in segments:
-                path = os.path.join(directory, segment.split('/')[-1])
+        for segment in segments:
+            filename = segment.split('/')[-1].split('.')[0]  # Get TS file name
 
-                executor.submit(dls, segment, path).add_done_callback(lambda _: progress.update())
+            digits = re.match('.*?([0-9]+)$', filename).group(1)  # Get number at the end of file name
+            digits = digits.zfill(5)  # Make it 5 characters long so that files get properly ordered
 
-                file.write(f"file '{path}'\n")  # Write file paths on text file for later use
+            path = os.path.join(directory, f'{digits}.ts')
+
+            executor.submit(dls, segment, path).add_done_callback(lambda _: progress.update())
 
     progress.close()
 
 
+# Deletes temporary folder
 def ext():
-    try:
-        os.unlink('segments.txt')
-    except FileNotFoundError:
-        pass
-
     try:
         shutil.rmtree('temp')
     except FileNotFoundError:

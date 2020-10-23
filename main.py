@@ -58,10 +58,9 @@ try:
 
             download(segments, temporary, title, MAX_WORKERS)
 
-            concat('segments.txt', TS)  # Join segments
+            concat(TS)  # Join segments
             convert(TS, MP4)  # Convert TS to MP4
 
-            os.unlink('segments.txt')  # Remove text file
             os.unlink(TS)  # Remove TS video
 
             shutil.rmtree(temporary)
@@ -117,10 +116,9 @@ try:
 
                     download(segments, temporary, f'Episode {episode}', MAX_WORKERS)
 
-                    concat('segments.txt', TS)  # Join segments
+                    concat(TS)  # Join segments
                     convert(TS, MP4)  # Convert TS to MP4
 
-                    os.unlink('segments.txt')  # Remove text file
                     os.unlink(TS)  # Remove TS video
 
                     shutil.rmtree(temporary)  # Remove temporary folder and all its files
