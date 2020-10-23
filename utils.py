@@ -1,15 +1,22 @@
+import concurrent.futures
 import json
+import os
+import re
+import shutil
 import subprocess
+import sys
 from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
+from tqdm import tqdm
 
 API_MOVIES_BASE = 'https://false-promise.lookmovie.ag/api/v1/storage/movies/?id_movie='
 API_SHOWS_BASE = 'https://false-promise.lookmovie.ag/api/v1/storage/shows/?slug='
 BASE = 'https://lookmovie.ag'
 MOVIES_BASE = 'https://lookmovie.ag/movies/search/?q='
-MASTER_BASE = 'https://lookmovie.ag/manifests/shows/json/'
+MASTER_MOVIES_BASE = 'https://lookmovie.ag/manifests/movies/json/'
+MASTER_SHOWS_BASE = 'https://lookmovie.ag/manifests/shows/json/'
 SHOWS_BASE = 'https://lookmovie.ag/shows/search/?q='
 
 
@@ -22,6 +29,8 @@ def access(text, movie=True):
 
 # Converts TS video to MP4
 def convert(filename, output):
+    print('Converting to MP4...')
+
     subprocess.Popen(
         ['ffmpeg', '-loglevel', 'quiet', '-stats', '-i', filename, '-c:a', 'copy', '-c:v', 'copy', output]
     ).wait()
@@ -29,13 +38,15 @@ def convert(filename, output):
 
 # Concatenates all TS segments
 def concat(txt, output):
+    print('Joining segments...')
+
     subprocess.Popen(
         ['ffmpeg', '-loglevel', 'quiet', '-stats', '-f', 'concat', '-safe', '0', '-i', txt, '-c', 'copy', output]
     ).wait()
 
 
-# Downloads all segments
-def download(segment, path):
+# Downloads a segment
+def dls(segment, path):
     response = requests.get(segment, stream=True)
 
     with open(path, 'wb') as file:
@@ -44,10 +55,48 @@ def download(segment, path):
                 file.write(chunk)
 
 
+# Downloads all segments
+def download(segments, directory, description, workers):
+    progress = tqdm(
+        desc=description,
+        total=len(segments),
+        bar_format='{desc}: {percentage:3.0f}% |{bar}| [{elapsed} < {remaining}]'
+    )  # Progress bar
+
+    with concurrent.futures.ThreadPoolExecutor(workers) as executor:
+        with open('segments.txt', 'w') as file:
+            for segment in segments:
+                path = os.path.join(directory, segment.split('/')[-1])
+
+                executor.submit(dls, segment, path).add_done_callback(lambda _: progress.update())
+
+                file.write(f"file '{path}'\n")  # Write file paths on text file for later use
+
+    progress.close()
+
+
+def ext():
+    try:
+        os.unlink('segments.txt')
+    except FileNotFoundError:
+        pass
+
+    try:
+        shutil.rmtree('temp')
+    except FileNotFoundError:
+        pass
+
+
 # Returns all links for each segment
 def extract(link):
     parsed = urlparse(link)  # Parse URL
-    response = requests.get(link)  # Request to index link
+
+    try:
+        response = requests.get(link)  # Request to index link
+    except requests.exceptions.ConnectionError:
+        print('Could not connect, try again.')
+
+        sys.exit()
 
     content = [link.strip() for link in response.text.splitlines()]  # Get content from response
 
@@ -63,63 +112,86 @@ def find(string, start, end):
 
 # Returns all available video qualities
 def qualities(link):
-    response = requests.get(link)
+    try:
+        response = requests.get(link)
+    except requests.exceptions.ConnectionError:
+        print('Could not connect, try again.')
 
-    return {key: value for key, value in response.json().items() if not key.startswith('a')}
+        sys.exit()
+
+    return {k[:-1] if k.endswith('p') else k: v for k, v in response.json().items() if not k.startswith('a')}
 
 
 # Returns episode IDs data
-def load(link):
-    response = requests.get(link)
+def load(link, movie=True):
+    try:
+        response = requests.get(link)
+    except requests.exceptions.ConnectionError:
+        print('Could not connect, try again.')
+
+        sys.exit()
+
     document = response.text  # Get page HTML
 
     soup = BeautifulSoup(document, 'html.parser')
 
     script = soup.find('div', id='app').find('script').string  # Get content of first script tag
 
-    slug = find(script, 'slug: \'', '\',')  # Get slug
-    episodes = find(script, 'seasons: [', ']')  # Find seasons data substring
+    if movie:
+        i = find(script, 'id_movie: ', ',')
 
-    # Replace characters for JSON creation
-    episodes = episodes.replace('\'', '"')
-    episodes = episodes.replace('title:', '"title":')
-    episodes = episodes.replace('id_episode:', '"id_episode":')
-    episodes = episodes.replace('episode:', '"episode":')
-    episodes = episodes.replace('season:', '"season":')
+        return {
+            'ID': i
+        }
+    else:
+        slug = find(script, 'slug: \'', '\',')  # Get slug
+        episodes = find(script, 'seasons: [', ']')  # Find seasons data substring
 
-    episodes = '[' + ''.join(episodes.rsplit(',', 1)) + ']'  # Remove last comma and add brackets
+        # Replace characters for JSON creation
+        episodes = episodes.replace('\'', '"')
+        episodes = episodes.replace('title:', '"title":')
+        episodes = episodes.replace('id_episode:', '"id_episode":')
+        episodes = episodes.replace('episode:', '"episode":')
+        episodes = episodes.replace('season:', '"season":')
 
-    episodes = json.loads(episodes)  # Get JSON
+        episodes = '[' + ''.join(episodes.rsplit(',', 1)) + ']'  # Remove last comma and add brackets
 
-    result = {
-        'ID': slug
-    }
+        episodes = json.loads(episodes)  # Get JSON
 
-    for x in episodes:
-        s, e = x['season'], x['episode']
+        result = {
+            'ID': slug
+        }
 
-        i = x['id_episode']
+        for x in episodes:
+            s, e = x['season'], x['episode']
 
-        try:
-            result[s][e] = i
-        except KeyError:
-            result[s] = {
-                e: i
-            }
+            i = x['id_episode']
 
-    return result
+            try:
+                result[s][e] = i
+            except KeyError:
+                result[s] = {
+                    e: i
+                }
+
+        return result
 
 
 # Returns master link given ID, expiration and access token
 def master(i, expiration, token, movie=True):
     data = f'{i}/{expiration}/{token}' if movie else f'{token}/{expiration}/{i}'
 
-    return f'{MASTER_BASE}{data}/master.m3u8'
+    return f'{MASTER_MOVIES_BASE if movie else MASTER_SHOWS_BASE}{data}/master.m3u8'
 
 
 # Returns a dict with the links for results
 def search(query, movie=True):
-    response = requests.get(f'{MOVIES_BASE if movie else SHOWS_BASE}{query}')
+    try:
+        response = requests.get(f'{MOVIES_BASE if movie else SHOWS_BASE}{query}')
+    except requests.exceptions.ConnectionError:
+        print('Could not connect, try again.')
+
+        sys.exit()
 
     document = response.text  # Get page HTML
 
@@ -133,7 +205,10 @@ def search(query, movie=True):
         year = element.find('p', 'year').string
 
         link = f"{BASE}{info.a.get('href')}"
+
         title = info.a.string.strip()
+        title = re.sub(r'[<>:"/|?*\\]', ' ', title)  # Remove invalid characters for Windows
+        title = ' '.join(title.split())  # Remove consecutive spaces
 
         result[f'{title} ({year})'] = link
 

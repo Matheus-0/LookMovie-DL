@@ -1,93 +1,132 @@
-import concurrent.futures
+import atexit
 import os
 import shutil
 
 import inquirer
-from tqdm import tqdm
 
-from utils import *
+from utils import access, concat, convert, download, ext, extract, qualities, load, master, search
 
-MAX_WORKERS = 15  # Maximum number of workers for thread pool executor
+MAX_WORKERS = 30  # Maximum number of workers for thread pool executor
 
-answers = inquirer.prompt([
-    inquirer.List('type', 'Look for movies or TV shows?', ['Movies', 'TV shows'], carousel=True),
-    inquirer.Text('query', 'Search')
-])
+atexit.register(ext)  # Function to be executed when program exits
 
-movie = answers['type'] == 'Movies'
+try:
+    answer = inquirer.prompt([
+        inquirer.List('type', 'Look for movies or TV shows?', ['Movies', 'TV shows'], carousel=True)
+    ], raise_keyboard_interrupt=True)['type']
 
-results = search(answers['query'], movie)  # Search and get results
+    query = input('Search: ')
 
-if results:
-    title = inquirer.prompt([
-        inquirer.List('title', 'Select movie or TV show', results.keys(), carousel=True)
-    ])['title']
+    movie = answer == 'Movies'
 
-    if movie:
-        print('To-do.')
-    else:
-        data = load(results[title])  # Get TV show data
-        acc = access(data['ID'], False)  # Get access data
+    results = search(query, movie)  # Search and get results
+
+    if results:
+        title = inquirer.prompt([
+            inquirer.List('title', 'Select movie or TV show', results.keys(), carousel=True)
+        ], raise_keyboard_interrupt=True)['title']
+
+        data = load(results[title], movie)  # Get TV show or movie data
+        acc = access(data['ID'], movie)  # Get access data
 
         expiration, token = acc['data']['expires'], acc['data']['accessToken']
 
-        season = inquirer.prompt([
-            inquirer.List('season', 'Select season', [s for s in data.keys() if s != 'ID'], carousel=True)
-        ])['season']
+        if movie:
+            mst = master(data['ID'], expiration, token, True)
+            links = qualities(mst)
 
-        episodes = inquirer.prompt([
-            inquirer.Checkbox('episodes', 'Select episodes', data[season].keys())
-        ])['episodes']
-
-        if episodes:
-            masters = {e: master(data[season][e], expiration, token, False) for e in episodes}  # Get master links
-            links = {e: qualities(link) for e, link in masters.items()}  # Get index links for each quality
-
-            directory = os.path.join(os.getcwd(), title, f"Season {season}")
+            directory = os.path.join(os.getcwd(), title)
             temporary = os.path.join(os.getcwd(), 'temp')
 
             os.makedirs(directory, exist_ok=True)
 
+            # Try to create temporary folder, if it exists, delete it and create another
+            try:
+                os.makedirs(temporary)
+            except FileExistsError:
+                shutil.rmtree(temporary)
+                os.makedirs(temporary)
+
             quality = inquirer.prompt([
-                inquirer.List('quality', 'Select quality', ['360p', '480p', '720p', '1080p'], carousel=True)
-            ])['quality']
+                inquirer.List('quality', 'Select quality', [i + 'p' for i in links.keys()], carousel=True)
+            ], raise_keyboard_interrupt=True)['quality'][:-1]
 
-            for episode, values in links.items():
-                # Paths for MP4 and TS videos
-                MP4 = os.path.join(directory, f'Episode {episode}.mp4')
-                TS = os.path.join(directory, f"Episode {episode}.ts")
+            MP4 = os.path.join(directory, f'{title}.mp4')
+            TS = os.path.join(directory, f"{title}.ts")
 
-                try:
-                    link = values[quality[:-1]]  # Try to access quality
-                except KeyError:
-                    link = values[str(max([int(i) for i in values.keys()]))]  # Choose best quality if not available
+            segments = extract(links[quality])  # Get segments links
 
-                segments = extract(link)  # Get all links for each segment
+            download(segments, temporary, title, MAX_WORKERS)
 
-                os.makedirs(temporary, exist_ok=True)
+            concat('segments.txt', TS)  # Join segments
+            convert(TS, MP4)  # Convert TS to MP4
 
-                progress = tqdm(total=len(segments))  # Progress bar
+            os.unlink('segments.txt')  # Remove text file
+            os.unlink(TS)  # Remove TS video
 
-                with concurrent.futures.ThreadPoolExecutor(MAX_WORKERS) as executor:
-                    with open('segments.txt', 'w') as file:
-                        for segment in segments:
-                            path = os.path.join(temporary, segment.split('/')[-1])
-
-                            executor.submit(download, segment, path).add_done_callback(lambda _: progress.update())
-
-                            file.write(f"file '{path}'\n")  # Write file paths on text file for later use
-
-                progress.close()
-
-                concat('segments.txt', TS)  # Join all segments
-
-                convert(TS, MP4)  # Convert from TS to MP4
-
-                os.unlink('segments.txt')  # Remove text file
-                os.unlink(TS)  # Remove TS video
-
-                shutil.rmtree(temporary)  # Remove temporary folder and all its files
+            shutil.rmtree(temporary)
         else:
-            print('No episodes selected.')
-else:
-    print('No results.')
+            season = inquirer.prompt([
+                inquirer.List(
+                    'season', 'Select season', [f'Season {s}' for s in data.keys() if s != 'ID'], carousel=True
+                )
+            ], raise_keyboard_interrupt=True)['season'].split()[-1]
+
+            episodes = [x.split()[-1] for x in inquirer.prompt([
+                inquirer.Checkbox('episodes', 'Select episodes', [f'Episode {e}' for e in data[season].keys()])
+            ], raise_keyboard_interrupt=True)['episodes']]
+
+            if episodes:
+                masters = {e: master(data[season][e], expiration, token, False) for e in episodes}  # Get master links
+                links = {e: qualities(link) for e, link in masters.items()}  # Get index links for each quality
+
+                directory = os.path.join(os.getcwd(), title, f"Season {season}")
+                temporary = os.path.join(os.getcwd(), 'temp')
+
+                os.makedirs(directory, exist_ok=True)
+
+                labels = ['360', '480', '720', '1080']
+
+                for i in labels[:]:
+                    for j in links.values():
+                        if i not in j.keys():
+                            labels.remove(i)
+
+                            break
+
+                if labels:
+                    quality = inquirer.prompt([
+                        inquirer.List('quality', 'Select quality', [i + 'p' for i in labels], carousel=True)
+                    ], raise_keyboard_interrupt=True)['quality'][:-1]
+                else:
+                    quality = str()
+
+                for episode, values in links.items():
+                    # Paths for MP4 and TS videos
+                    MP4 = os.path.join(directory, f'Episode {episode}.mp4')
+                    TS = os.path.join(directory, f"Episode {episode}.ts")
+
+                    os.makedirs(temporary, exist_ok=True)
+
+                    if quality:
+                        link = values[quality]
+                    else:
+                        link = values[str(max([int(i) for i in values.keys()]))]  # Choose best quality if not available
+
+                    segments = extract(link)  # Get segments links
+
+                    download(segments, temporary, f'Episode {episode}', MAX_WORKERS)
+
+                    concat('segments.txt', TS)  # Join segments
+                    convert(TS, MP4)  # Convert TS to MP4
+
+                    os.unlink('segments.txt')  # Remove text file
+                    os.unlink(TS)  # Remove TS video
+
+                    shutil.rmtree(temporary)  # Remove temporary folder and all its files
+            else:
+                print('No episodes selected.')
+    else:
+        print('No results.')
+except KeyboardInterrupt:
+    print('Cancelled.')
