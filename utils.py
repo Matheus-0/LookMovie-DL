@@ -1,6 +1,7 @@
 import concurrent.futures
 import json
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -46,7 +47,10 @@ def convert(filename, output):
 
 # Concatenates all TS segments
 def concat(output):
-    return subprocess.call(f'copy /b .\\temp\\*.ts "{output}"', stdout=subprocess.DEVNULL, shell=True)
+    if platform.system() == 'Windows':
+        return subprocess.call(f'copy /b .\\temp\\*.ts "{output}"', stdout=subprocess.DEVNULL, shell=True)
+    else:
+        return subprocess.call(f'cat ./temp/*.ts > "{output}"', stdout=subprocess.DEVNULL, shell=True)
 
 
 # Downloads a file
