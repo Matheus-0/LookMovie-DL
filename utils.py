@@ -4,7 +4,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -100,13 +99,7 @@ def ext():
 # Returns all links for each segment
 def extract(link):
     parsed = urlparse(link)  # Parse URL
-
-    try:
-        response = requests.get(link)  # Request to index link
-    except requests.exceptions.ConnectionError:
-        print('Could not connect, try again.')
-
-        sys.exit()
+    response = requests.get(link)  # Request to index link
 
     content = [link.strip() for link in response.text.splitlines()]  # Get content from response
 
@@ -127,14 +120,9 @@ def findall(string, start, end):
 
 # Returns all available video qualities
 def qualities(link):
-    try:
-        response = requests.get(link)
+    response = requests.get(link)
 
-        data = {k[:-1] if k.endswith('p') else k: v for k, v in response.json().items() if not k.startswith('a')}
-    except requests.exceptions.ConnectionError:
-        print('Could not connect, try again.')
-
-        sys.exit()
+    data = {k[:-1] if k.endswith('p') else k: v for k, v in response.json().items() if not k.startswith('a')}
 
     # Try to obtain 1080p URL
     try:
@@ -165,12 +153,7 @@ def qualities(link):
 
 # Returns episode IDs data
 def load(link, movie=True):
-    try:
-        response = requests.get(link)
-    except requests.exceptions.ConnectionError:
-        print('Could not connect, try again.')
-
-        sys.exit()
+    response = requests.get(link)
 
     soup = BeautifulSoup(response.text, 'html.parser')
 
@@ -238,6 +221,7 @@ def process(directory, title, subtitles):
     if subtitles:
         convert(t, m)
 
+        print(f'Available subtitles: {", ".join(subtitles.keys())}.')
         print('Adding subtitles...')
 
         status = subtitle(m, final, subtitles)
@@ -262,12 +246,7 @@ def process(directory, title, subtitles):
 
 # Returns a dict with the links for results
 def search(query, movie=True):
-    try:
-        response = requests.get(f'{MOVIES_BASE if movie else SHOWS_BASE}{query}')
-    except requests.exceptions.ConnectionError:
-        print('Could not connect, try again.')
-
-        sys.exit()
+    response = requests.get(f'{MOVIES_BASE if movie else SHOWS_BASE}{query}')
 
     soup = BeautifulSoup(response.text, 'html.parser')
 

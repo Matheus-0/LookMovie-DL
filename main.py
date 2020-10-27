@@ -3,6 +3,7 @@ import os
 import shutil
 
 import inquirer
+import requests
 from inquirer.themes import load_theme_from_dict
 
 from utils import access, download, ext, extract, qualities, load, master, process, search, subs
@@ -158,3 +159,7 @@ try:
         print('No results.')
 except KeyboardInterrupt:
     print('Cancelled.')
+except requests.exceptions.ConnectionError:
+    print('Could not connect, try again.')
+finally:
+    input('\nPress Enter to exit.\n')
