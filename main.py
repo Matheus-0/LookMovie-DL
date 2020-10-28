@@ -50,31 +50,49 @@ try:
         inquirer.List('title', 'Select movie or TV show', results.keys(), carousel=True)
     ], theme=theme, raise_keyboard_interrupt=True)['title']
 
+    print('Loading data...\n')
+
     data = load(results[title], movie)  # Get TV show or movie data
     acc = access(data['ID'], movie)  # Get access data
 
     expiration, token = acc['data']['expires'], acc['data']['accessToken']
 
     if movie:
+        print('Looking for video qualities...\n')
+
         mst = master(data['ID'], expiration, token, True)
         links = qualities(mst)
 
         directory = os.path.join(os.getcwd(), title)
         temporary = os.path.join(os.getcwd(), 'temp')
 
-        os.makedirs(directory, exist_ok=True)
+        quality = inquirer.prompt([
+            inquirer.List('quality', 'Select quality', [i + 'p' for i in links.keys()], carousel=True)
+        ], theme=theme, raise_keyboard_interrupt=True)['quality'][:-1]
 
-        proceed = True
+        print('Looking for subtitles...\n')
+
+        sbs = subs(results[title], True)  # Get subtitles links
+
+        if sbs:
+            print(f'Available subtitles: {", ".join(sbs.keys())}.\n')
+        else:
+            print(f'No subtitles available.\n')
+
+        proceed = inquirer.prompt([
+            inquirer.List('proceed', 'Do you want to proceed with the download?', ['No', 'Yes'], carousel=True)
+        ], theme=theme, raise_keyboard_interrupt=True)['proceed'] == 'Yes'
 
         if os.path.isfile(os.path.join(os.getcwd(), directory, f'{title}.mp4')):
-            again = inquirer.prompt([
-                inquirer.List('again', f'{title} has already been downloaded, download again?', ['No', 'Yes'])
-            ], theme=theme, raise_keyboard_interrupt=True)['again']
-
-            if again == 'No':
-                proceed = False
+            proceed = inquirer.prompt([
+                inquirer.List(
+                    'proceed', f'{title} has already been downloaded, download again?', ['No', 'Yes'], carousel=True
+                )
+            ], theme=theme, raise_keyboard_interrupt=True)['proceed'] == 'Yes'
 
         if proceed:
+            os.makedirs(directory, exist_ok=True)
+
             # Try to create temporary folder, if it exists, delete it and create another
             try:
                 os.makedirs(temporary)
@@ -82,11 +100,6 @@ try:
                 shutil.rmtree(temporary)
                 os.makedirs(temporary)
 
-            quality = inquirer.prompt([
-                inquirer.List('quality', 'Select quality', [i + 'p' for i in links.keys()], carousel=True)
-            ], theme=theme, raise_keyboard_interrupt=True)['quality'][:-1]
-
-            sbs = subs(results[title], True)  # Get subtitles links
             segments = extract(links[quality])  # Get segments links
 
             download(segments, sbs, title, MAX_WORKERS)  # Download all segments and subtitles
@@ -100,48 +113,83 @@ try:
             )
         ], theme=theme, raise_keyboard_interrupt=True)['season'].split()[-1]
 
-        episodes = [x.split()[-1] for x in inquirer.prompt([
-            inquirer.Checkbox('episodes', 'Select episodes', [f'Episode {e}' for e in data[season].keys()])
-        ], theme=theme, raise_keyboard_interrupt=True)['episodes']]
+        episodes = None
 
-        if episodes:
-            episodes = list(map(str, sorted(map(int, episodes))))  # Episodes might come in wrong order, so we sort
+        while not episodes:
+            episodes = [x.split()[-1] for x in inquirer.prompt([
+                inquirer.Checkbox(
+                    'episodes', 'Select episodes (use Space to select)', [f'Episode {e}' for e in data[season].keys()]
+                )
+            ], theme=theme, raise_keyboard_interrupt=True)['episodes']]
 
-            masters = {e: master(data[season][e], expiration, token, False) for e in episodes}  # Get master links
-            links = {e: qualities(link) for e, link in masters.items()}  # Get links for each quality
+            if not episodes:
+                print('No episodes selected, select at least one.\n')
 
-            directory = os.path.join(os.getcwd(), title, f"Season {season}")
-            temporary = os.path.join(os.getcwd(), 'temp')
+        episodes = list(map(str, sorted(map(int, episodes))))  # Episodes might come in wrong order, so we sort
 
+        print('Looking for video qualities...\n')
+
+        masters = {e: master(data[season][e], expiration, token, False) for e in episodes}  # Get master links
+        links = {e: qualities(link) for e, link in masters.items()}  # Get links for each quality
+
+        directory = os.path.join(os.getcwd(), title, f"Season {season}")
+        temporary = os.path.join(os.getcwd(), 'temp')
+
+        # Get qualities all episodes have in common
+        labels = ['360', '480', '720', '1080']
+
+        for i in labels[:]:
+            for j in links.values():
+                if i not in j.keys():
+                    labels.remove(i)
+
+                    break
+
+        if labels:
+            quality = inquirer.prompt([
+                inquirer.List('quality', 'Select quality', [i + 'p' for i in labels], carousel=True)
+            ], theme=theme, raise_keyboard_interrupt=True)['quality'][:-1]
+        else:
+            print('The episodes don\'t have any qualities in common, the best quality will be chosen for each.\n')
+
+            quality = str()
+
+        print('Looking for subtitles...\n')
+
+        sbs = {e: subs(data[season][e], False) for e in episodes}  # Get links for subtitles
+
+        for episode in sbs.keys():
+            if sbs[episode]:
+                print(f'Episode {episode}: {", ".join(sbs[episode].keys())}.')
+            else:
+                print(f'Episode {episode}: no subtitles available.')
+
+        print()
+
+        proceed = inquirer.prompt([
+            inquirer.List('proceed', 'Do you want to proceed with the download?', ['No', 'Yes'], carousel=True)
+        ], theme=theme, raise_keyboard_interrupt=True)['proceed'] == 'Yes'
+
+        if proceed:
             os.makedirs(directory, exist_ok=True)
 
-            # Get qualities all episodes have in common
-            labels = ['360', '480', '720', '1080']
-
-            for i in labels[:]:
-                for j in links.values():
-                    if i not in j.keys():
-                        labels.remove(i)
-
-                        break
-
-            if labels:
-                quality = inquirer.prompt([
-                    inquirer.List('quality', 'Select quality', [i + 'p' for i in labels], carousel=True)
-                ], theme=theme, raise_keyboard_interrupt=True)['quality'][:-1]
-            else:
-                quality = str()
+            # Try to create temporary folder, if it exists, delete it and create another
+            try:
+                os.makedirs(temporary)
+            except FileExistsError:
+                shutil.rmtree(temporary)
+                os.makedirs(temporary)
 
             for episode, values in links.items():
                 if os.path.isfile(os.path.join(os.getcwd(), directory, f'Episode {episode}.mp4')):
-                    again = inquirer.prompt([
+                    proceed = inquirer.prompt([
                         inquirer.List(
-                            'again', f'Episode {episode} has already been downloaded, download again?',
+                            'proceed', f'Episode {episode} has already been downloaded, download again?',
                             ['No', 'Yes']
                         )
-                    ], theme=theme, raise_keyboard_interrupt=True)['again']
+                    ], theme=theme, raise_keyboard_interrupt=True)['proceed'] == 'Yes'
 
-                    if again == 'No':
+                    if not proceed:
                         continue
 
                 os.makedirs(temporary, exist_ok=True)
@@ -151,18 +199,15 @@ try:
                 else:
                     link = values[str(max([int(i) for i in values.keys()]))]  # Choose best quality if not available
 
-                sbs = subs(data[season][episode], False)  # Get subtitles links
                 segments = extract(link)  # Get segments links
 
-                download(segments, sbs, f'Episode {episode}', MAX_WORKERS)  # Download all segments and subtitles
-                process(directory, f'Episode {episode}', sbs)  # Join segments, convert to MP4 and add subtitles
+                download(segments, sbs[episode], f'Episode {episode}', MAX_WORKERS)  # Download segments and subs
+                process(directory, f'Episode {episode}', sbs[episode])  # Join segments, convert and add subtitles
 
                 shutil.rmtree(temporary, True)
-        else:
-            print('No episodes selected.')
 except KeyboardInterrupt:
-    print('Cancelled.')
+    print('Cancelled.\n')
 except requests.exceptions.ConnectionError:
-    print('Could not connect, try again.')
+    print('Connection error.\n')
 finally:
-    input('\nPress Enter to exit.\n')
+    input('Press Enter to exit.\n')

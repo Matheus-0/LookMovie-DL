@@ -216,7 +216,7 @@ def process(directory, title, subtitles):
     m = os.path.join(directory, f'temporary.mp4')
     t = os.path.join(directory, f'temporary.ts')
 
-    print('Joining segments...')
+    print('\nJoining segments...')
 
     concat(t)
 
@@ -225,27 +225,38 @@ def process(directory, title, subtitles):
     if subtitles:
         convert(t, m)
 
-        print(f'Available subtitles: {", ".join(subtitles.keys())}.')
         print('Adding subtitles...')
 
-        status = subtitle(m, final, subtitles)
+        if subtitle(m, final, subtitles) == 0:
+            try:
+                os.unlink(m)  # If adding subtitles was successful, delete temporary file
+            except OSError:
+                print(f'Could not delete temporary video file: {m}')
 
-        if status == 0:
-            os.unlink(m)  # If adding subtitles was successful, delete temporary file
+                pass
         else:
             # Otherwise, delete incomplete final file and keep the temporary one without subtitles
-            os.unlink(final)
-            os.rename(m, final)
+            try:
+                os.unlink(final)
+            except OSError:
+                print(f'Could not delete incomplete output file: {final}')
+
+                pass
+            else:
+                try:
+                    os.rename(m, final)
+                except OSError:
+                    print(f'Could not rename file: {m}')
+
+                    pass
 
             print('Error, could not add subtitles.')
     else:
         convert(t, final)
 
-        print('No subtitles available.')
-
     os.unlink(t)
 
-    print('Finished!')
+    print('Finished!\n')
 
 
 # Returns a dict with the links for results
