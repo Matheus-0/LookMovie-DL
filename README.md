@@ -16,7 +16,15 @@
 
 ### Usage
 
-Just open the executable file, the program itself is simple to understand. The movies and TV shows will be saved at the same directory as the executable file.
+Just open the executable file, the program itself is simple to understand. The movies and TV shows will be saved at the same directory as the executable file. You will also need a video player with support to subtitles like VLC for PC or MX Player for Android in order to see them.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Matheus-0/LookMovie-DL/master/.github/1.png" />
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Matheus-0/LookMovie-DL/master/.github/2.png" />
+</p>
 
 ## Disclaimer
 
