@@ -344,6 +344,6 @@ def subtitle(i, output, subtitles):
         count += 1
 
     return subprocess.call(
-        f'ffmpeg -xerror -v -8 -y {inputs} {maps} -c:v copy -c:a copy -c:s mov_text {metadata[:-1]} "{output}"',
+        f'ffmpeg -v -8 -y {inputs} {maps} -c:v copy -c:a copy -c:s mov_text {metadata[:-1]} "{output}"',
         stdout=subprocess.DEVNULL
     )

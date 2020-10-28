@@ -12,7 +12,7 @@
 
 1) Install [FFmpeg](https://ffmpeg.org/download.html) on your system, this tool will be used for video conversion and adding subtitles.
 
-2) Go for the [latest release](https://github.com/Matheus-0/LookMovie-Downloader/releases/latest) and download the executable file for your system.
+2) Go for the [latest release](https://github.com/Matheus-0/LookMovie-DL/releases/latest) and download the executable file for your system.
 
 ### Usage
 
