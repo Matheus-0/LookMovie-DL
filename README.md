@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Matheus-0/LookMovie-Downloader/master/.github/icon.png?token=ANVE3JV6NWLWL4SZ64ZZBIC7TF3C4" />
+  <img src="https://raw.githubusercontent.com/Matheus-0/LookMovie-DL/master/.github/icon.png" />
 </p>
 
 <p align="center">
