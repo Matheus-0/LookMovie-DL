@@ -39,6 +39,7 @@ session = requests.Session()
 retries = Retry(5, status_forcelist=[500, 502, 503, 504], backoff_factor=0.1)
 
 session.mount('http://', HTTPAdapter(max_retries=retries))
+session.mount('https://', HTTPAdapter(max_retries=retries))
 
 
 # Returns JSON with expiration and access token
