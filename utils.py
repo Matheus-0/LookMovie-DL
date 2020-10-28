@@ -9,7 +9,9 @@ from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
+from requests.adapters import HTTPAdapter
 from tqdm import tqdm
+from urllib3.util.retry import Retry
 
 API_MOVIES_BASE = 'https://false-promise.lookmovie.ag/api/v1/storage/movies/?id_movie='
 API_SHOWS_BASE = 'https://false-promise.lookmovie.ag/api/v1/storage/shows/?slug='
@@ -23,15 +25,24 @@ SUBTITLES_SHOWS_BASE = 'https://lookmovie.ag/api/v1/shows/episode-subtitles/?id_
 
 codes = {
     'English': 'eng',
+    'French': 'fre',
+    'German': 'ger',
+    'Italian': 'ita',
     'Portuguese': 'por',
     'Portuguese (BR)': 'por',
     'Spanish': 'spa'
 }
 
+session = requests.Session()
+
+retries = Retry(5, status_forcelist=[500, 502, 503, 504], backoff_factor=0.1)
+
+session.mount('http://', HTTPAdapter(max_retries=retries))
+
 
 # Returns JSON with expiration and access token
 def access(text, movie=True):
-    response = requests.get(f'{API_MOVIES_BASE if movie else API_SHOWS_BASE}{text}')
+    response = session.get(f'{API_MOVIES_BASE if movie else API_SHOWS_BASE}{text}')
 
     return response.json()
 
@@ -55,7 +66,7 @@ def concat(output):
 
 # Downloads a file
 def dlf(link, path, stream):
-    response = requests.get(link, stream=stream)
+    response = session.get(link, stream=stream)
 
     with open(path, 'wb') as file:
         if stream:
@@ -103,7 +114,7 @@ def ext():
 # Returns all links for each segment
 def extract(link):
     parsed = urlparse(link)  # Parse URL
-    response = requests.get(link)  # Request to index link
+    response = session.get(link)  # Request to index link
 
     content = [link.strip() for link in response.text.splitlines()]  # Get content from response
 
@@ -124,7 +135,7 @@ def findall(string, start, end):
 
 # Returns all available video qualities
 def qualities(link):
-    response = requests.get(link)
+    response = session.get(link)
 
     data = {k[:-1] if k.endswith('p') else k: v for k, v in response.json().items() if not k.startswith('a')}
 
@@ -140,7 +151,7 @@ def qualities(link):
                     valid = value.replace(key + 'p', '1080p')
 
                     # Check if such 1080p URL exists
-                    if requests.get(valid).ok:
+                    if session.get(valid).ok:
                         data['1080'] = valid
                     else:
                         delete = True
@@ -157,7 +168,7 @@ def qualities(link):
 
 # Returns episode IDs data
 def load(link, movie=True):
-    response = requests.get(link)
+    response = session.get(link)
 
     soup = BeautifulSoup(response.text, 'html.parser')
 
@@ -261,7 +272,7 @@ def process(directory, title, subtitles):
 
 # Returns a dict with the links for results
 def search(query, movie=True):
-    response = requests.get(f'{MOVIES_BASE if movie else SHOWS_BASE}{query}')
+    response = session.get(f'{MOVIES_BASE if movie else SHOWS_BASE}{query}')
 
     soup = BeautifulSoup(response.text, 'html.parser')
 
@@ -286,7 +297,7 @@ def search(query, movie=True):
 # Gets subtitles
 def subs(i, movie):
     if movie:
-        response = requests.get(i)
+        response = session.get(i)
 
         soup = BeautifulSoup(response.text, 'html.parser')
 
@@ -299,7 +310,7 @@ def subs(i, movie):
 
         return languages
     else:
-        response = requests.get(f'{SUBTITLES_SHOWS_BASE}{i}')
+        response = session.get(f'{SUBTITLES_SHOWS_BASE}{i}')
 
         languages = dict()
 
