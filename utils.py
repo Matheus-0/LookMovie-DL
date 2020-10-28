@@ -28,6 +28,7 @@ codes = {
     'French': 'fre',
     'German': 'ger',
     'Italian': 'ita',
+    'Japanese': 'jpn',
     'Portuguese': 'por',
     'Portuguese (BR)': 'por',
     'Spanish': 'spa'

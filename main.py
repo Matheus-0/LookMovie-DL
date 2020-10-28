@@ -206,7 +206,7 @@ try:
 
                 shutil.rmtree(temporary, True)
 except KeyboardInterrupt:
-    print('Cancelled.\n')
+    print('\033[0mCancelled.\n')
 except requests.exceptions.ConnectionError:
     print('Connection error.\n')
 finally:
