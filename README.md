@@ -22,9 +22,6 @@ You will also need a video player with support to subtitles like VLC for PC or M
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/Matheus-0/LookMovie-DL/master/.github/1.png" width=630 />
-</p>
-
-<p align="center">
   <img src="https://raw.githubusercontent.com/Matheus-0/LookMovie-DL/master/.github/2.png" width=630 />
 </p>
 
